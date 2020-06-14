@@ -22,7 +22,11 @@
 	<p></p>
     <a href="{{ link | prepend: site.baseurl | prepend: site.url }}" class="link">{{ prompt }}</a>
     <span> • </span>
-    {% if site.github_username %}	
+    {% if site.email %}
+        <a href="mailto:{{ site.email }}" title="Email" target="_blank" class="link">Email</a>
+        <span> • </span>
+    {% endif %}
+    {% if site.github_username %}
         <a href="https://github.com/{{ site.github_username }}" title="GitHub Profile" target="_blank" class="link">Github</a>
         <span> • </span>
     {% endif %}
