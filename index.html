@@ -16,16 +16,29 @@ layout: default
 			{% endif %}
 		{% endunless %}
 
-		<ul>
-			<li>
-				<div class="post-date code">
-					<span>{{ post.date | date: "%b" }}</span>
-				</div>
-				<div class="title">
-					<a href="{{ post.url | prepend: site.baseurl | prepend: site.url }}">{{ post.title }}</a>
-				</div>
-			</li>
-		</ul>
+		{% if post.title == 'CRLDB Placeholder'%}
+			<ul>
+				<li>
+					<div class="post-date code">
+						<span>{{ post.date | date: "%b" }}</span>
+					</div>
+					<div class="title">
+						<a href="https://www.cockroachlabs.com/blog/unordered-distinct-vectorized-engine/">Improving Unordered Distinct Efficiency in the Vectorized SQL Engine</a>
+					</div>
+				</li>
+			</ul>
+		{% else %}
+			<ul>
+				<li>
+					<div class="post-date code">
+						<span>{{ post.date | date: "%b" }}</span>
+					</div>
+					<div class="title">
+						<a href="{{ post.url | prepend: site.baseurl | prepend: site.url }}">{{ post.title }}</a>
+					</div>
+				</li>
+			</ul>
+		{% endif %}
 
 	{% endfor %}
 
