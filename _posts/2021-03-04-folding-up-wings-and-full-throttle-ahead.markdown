@@ -6,7 +6,7 @@ date:   2021-03-04 00:04:45 -0400
 
 The fantasy of creating something from absolute nothingness, and to build it into
 existence with my bare hands, is a very appealing proposition. Truth be told, I am
-addcited to that fantasy. But when I dream of a fantasy, I tend to ignore a lot
+addicted to that fantasy. But when I dream of a fantasy, I tend to ignore a lot
 of intricate details, and that would be the journey of getting there.
 
 One thing that strikes me the most is the conversation I had. 
