@@ -1,6 +1,6 @@
 <aside class="logo">
 
-  {% if page.url == '/writings/' %}
+  {% if page.url == '/writings/' or page.url == '/404' %}
     {% assign link = '' %}
     {% assign prompt = 'Hello' %}
   {% elsif page.url == '/' or page.url == '/index.html' %}
@@ -28,9 +28,9 @@
   {% endif %}
   <div>
     {% if page.url == '/' or page.url == '/index.html' %}
-      <div style="font-size:14px; padding-right:6vw"><i>Mostly build things</i></div>
-      <div style="font-size:14px"><i>sometimes break things</i></div>
-      <div style="font-size:14px; padding-left:6vw"><i>occasionally write things</i></div>
+      <div style="font-size:14px; padding-right:6vw"><i>Mostly <a href="https://github.com/Azhng">build</a> things</i></div>
+      <div style="font-size:14px"><i>sometimes <a href="/404">break</a> things</i></div>
+      <div style="font-size:14px; padding-left:6vw"><i>occasionally <a href="/writings/">write</a> things</i></div>
       <br>
       <br>
     {% else %}
