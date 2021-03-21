@@ -1,42 +1,62 @@
 <aside class="logo">
 
-	{% if page.url == '/index.html' or page.url == '/' %}
-		{% assign link = '/about' %}
-		{% assign prompt = 'About me' %}
-	{% else %}
-		{% assign link = '/' %}
-		{% assign prompt = 'Back to Index' %}
-	{% endif %}
+  {% if page.url == '/writings/' %}
+    {% assign link = '' %}
+    {% assign prompt = 'Hello' %}
+  {% elsif page.url == '/' or page.url == '/index.html' %}
+    {% assign link = '/writings' %}
+    {% assign prompt = 'Writings' %}
+  {% else %}
+    {% assign link = '/writings' %}
+    {% assign prompt = 'Back to index' %}
+  {% endif %}
 
-	<a href="{{ link | prepend: site.baseurl | prepend: site.url }}">
-		<img src="{{ site.logo_url }}" class="logo-avatar">
-	</a>
-	<span class="logo-prompt code">{{ prompt }}</span>
+  <a href="{{ link | prepend: site.baseurl | prepend: site.url }}">
+    <img src="{{ site.logo_url }}" class="logo-avatar">
+  </a>
+  <span class="logo-prompt code">{{ prompt }}</span>
 
 </aside>
 
 <aside class="links">
-  <div>Hi, I'm Archer</div>
-	<p></p>
-  <div><i style="font-size:11px">Cogito, ergo sum</i></div>
-	<p></p>
+  {% if page.url == '/' or page.url == '/index.html' %}
+    <div style="font-size:24px"><i>Hi, I'm Archer</i></div>
+    <br>
+    <br>
+  {% else %}
+    <div>Hi, I'm Archer</div>
+  {% endif %}
+  <div>
+    {% if page.url == '/' or page.url == '/index.html' %}
+      <div style="font-size:14px; padding-right:6vw"><i>Mostly build things</i></div>
+      <div style="font-size:14px"><i>sometimes break things</i></div>
+      <div style="font-size:14px; padding-left:6vw"><i>occasionally write things</i></div>
+      <br>
+      <br>
+    {% else %}
+      <i style="font-size:11px">Cogito, ergo sum</i>
+    {% endif %}
+  </div>
+  <br>
   <a href="{{ link | prepend: site.baseurl | prepend: site.url }}" class="link">{{ prompt }}</a>
-    <span> • </span>
-    {% if site.email %}
-        <a href="mailto:{{ site.email }}" title="Email" target="_blank" class="link">Email</a>
-        <span> • </span>
+    {% if page.url == '/' or page.url == '/index.html' %}
+      <span> • </span>
+      {% if site.email %}
+          <a href="mailto:{{ site.email }}" title="Email" target="_blank" class="link">Email</a>
+          <span> • </span>
+      {% endif %}
+      {% if site.github_username %}
+          <a href="https://github.com/{{ site.github_username }}" title="GitHub Profile" target="_blank" class="link">Github</a>
+          <span> • </span>
+      {% endif %}
+      {% if site.twitter_username %}
+          <a href="https://twitter.com/{{ site.twitter_username }}" title="Twitter Profile" target="_blank" class="link">Twitter</a>
+          <span> • </span>
+      {% endif %}
+      {% if site.linkedin_username %}
+          <a href="https://www.linkedin.com/in/{{ site.linkedin_username }}" title="LinkedIn Profile" target="_blank" class="link">LinkedIn</a>
+      {% endif %}
+          <span> • </span>
+          <a href="{{ site.url }}/feed.xml" title="RSS" target="_blank" class="link">RSS</a>
     {% endif %}
-    {% if site.github_username %}
-        <a href="https://github.com/{{ site.github_username }}" title="GitHub Profile" target="_blank" class="link">Github</a>
-        <span> • </span>
-    {% endif %}
-    {% if site.twitter_username %}
-        <a href="https://twitter.com/{{ site.twitter_username }}" title="Twitter Profile" target="_blank" class="link">Twitter</a>
-        <span> • </span>
-    {% endif %}
-    {% if site.linkedin_username %}
-        <a href="https://www.linkedin.com/in/{{ site.linkedin_username }}" title="LinkedIn Profile" target="_blank" class="link">LinkedIn</a>
-    {% endif %}
-        <span> • </span>
-        <a href="{{ site.url }}/feed.xml" title="RSS" target="_blank" class="link">RSS</a>
 </aside>
