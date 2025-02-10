@@ -17,7 +17,6 @@ sass:
 markdown: kramdown
 kramdown:
     input:          GFM
-theme: the-plain
 plugins:
   - jekyll-feed
   - jekyll-remote-theme
