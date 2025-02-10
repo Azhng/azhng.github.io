@@ -24,6 +24,8 @@ plugins:
   - jekyll-sitemap
 
 remote_theme: heiswayi/the-plain
+
+remote_theme: heiswayi/the-plain
 include: [ "BingSiteAuth.xml" ]
 
 defaults:
