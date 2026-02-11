@@ -2,6 +2,7 @@
 layout: post
 title:  "It is too late for regret"
 date:   2021-03-20 00:04:45 -0400
+category: personal
 ---
 
 On the off chance that you stumble upon this, I feel sorry, but in case you are

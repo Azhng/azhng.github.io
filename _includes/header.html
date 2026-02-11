@@ -1,17 +1,14 @@
 <aside class="logo">
 
-  {% if page.url == '/writings/' or page.url == '/broken' %}
-    {% assign link = '' %}
-    {% assign prompt = 'Hello' %}
-  {% elsif page.url == '/' or page.url == '/index.html' %}
+  {% if page.url == '/' or page.url == '/index.html' %}
     {% assign link = '/writings' %}
     {% assign prompt = 'Writings' %}
   {% else %}
-    {% assign link = '/writings' %}
-    {% assign prompt = 'Back to index' %}
+    {% assign link = '/' %}
+    {% assign prompt = '← Index' %}
   {% endif %}
 
-  <a href="{{ link | prepend: site.baseurl | prepend: site.url }}">
+  <a href="{{ link | relative_url }}">
     <img src="{{ site.logo_url }}" class="logo-avatar">
   </a>
   <span class="logo-prompt code">{{ prompt }}</span>
@@ -38,7 +35,7 @@
     {% endif %}
   </div>
   <br>
-  <a href="{{ link | prepend: site.baseurl | prepend: site.url }}" class="link">{{ prompt }}</a>
+  <a href="{{ link | relative_url }}" class="link">{{ prompt }}</a>
     {% if page.url == '/' or page.url == '/index.html' %}
       <span> • </span>
       {% if site.email %}
@@ -57,6 +54,6 @@
           <a href="https://www.linkedin.com/in/{{ site.linkedin_username }}" title="LinkedIn Profile" target="_blank" class="link">LinkedIn</a>
       {% endif %}
           <span> • </span>
-          <a href="{{ site.url }}/feed.xml" title="RSS" target="_blank" class="link">RSS</a>
+          <a href="{{ "/feed.xml" | relative_url }}" title="RSS" target="_blank" class="link">RSS</a>
     {% endif %}
 </aside>

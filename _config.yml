@@ -1,7 +1,7 @@
 title: Archer Zhang
 email: gh-contact@archerzhang.me
 description: "stuff"
-baseurl: /
+baseurl: ""
 permalink: /:title
 logo_url: https://avatars1.githubusercontent.com/u/9267198?s=460&v=4
 url: "https://archerzhang.me"
@@ -19,10 +19,8 @@ kramdown:
     input:          GFM
 plugins:
   - jekyll-feed
-  - jekyll-remote-theme
   - jekyll-sitemap
 
-remote_theme: heiswayi/the-plain
 include: [ "BingSiteAuth.xml" ]
 
 defaults:
@@ -40,4 +38,5 @@ defaults:
     scope:
       type:         "posts"
     values:
-layout: "post"
+      layout:       "post"
+      category:     "professional"

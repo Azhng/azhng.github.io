@@ -1,0 +1,90 @@
+---
+layout: page
+title: Writings
+permalink: /writings/
+---
+
+<div class="writing-tabs">
+	<button class="tab-btn active" data-filter="all">All</button>
+	<button class="tab-btn" data-filter="professional">Professional</button>
+	<button class="tab-btn" data-filter="personal">Personal</button>
+</div>
+
+<section>
+
+	{% for post in site.posts %}
+		{% unless post.next %}
+			<h3 class="code year-header" data-year="{{ post.date | date: '%Y' }}">{{ post.date | date: '%Y' }}</h3>
+		{% else %}
+			{% capture year %}{{ post.date | date: '%Y' }}{% endcapture %}
+			{% capture nyear %}{{ post.next.date | date: '%Y' }}{% endcapture %}
+			{% if year != nyear %}
+				<h3 class="code year-header" data-year="{{ post.date | date: '%Y' }}">{{ post.date | date: '%Y' }}</h3>
+			{% endif %}
+		{% endunless %}
+
+		{% if post.external_url %}
+			<ul class="post-item" data-category="{{ post.category }}">
+				<li>
+					<div class="post-date code">
+						<span>{{ post.date | date: "%b" }}</span>
+					</div>
+					<div class="title">
+						<a href="{{ post.external_url }}">{{ post.external_title }}</a>
+					</div>
+				</li>
+			</ul>
+		{% else %}
+			<ul class="post-item" data-category="{{ post.category }}">
+				<li>
+					<div class="post-date code">
+						<span>{{ post.date | date: "%b" }}</span>
+					</div>
+					<div class="title">
+						<a href="{{ post.url | relative_url }}">{{ post.title }}</a>
+					</div>
+				</li>
+			</ul>
+		{% endif %}
+
+	{% endfor %}
+
+</section>
+
+<script>
+(function() {
+	var buttons = document.querySelectorAll('.tab-btn');
+	var posts = document.querySelectorAll('.post-item');
+	var headers = document.querySelectorAll('.year-header');
+
+	buttons.forEach(function(btn) {
+		btn.addEventListener('click', function() {
+			buttons.forEach(function(b) { b.classList.remove('active'); });
+			btn.classList.add('active');
+
+			var filter = btn.getAttribute('data-filter');
+
+			posts.forEach(function(post) {
+				if (filter === 'all' || post.getAttribute('data-category') === filter) {
+					post.style.display = '';
+				} else {
+					post.style.display = 'none';
+				}
+			});
+
+			headers.forEach(function(header) {
+				var hasVisible = false;
+				var el = header.nextElementSibling;
+				while (el && !el.classList.contains('year-header')) {
+					if (el.classList.contains('post-item') && el.style.display !== 'none') {
+						hasVisible = true;
+						break;
+					}
+					el = el.nextElementSibling;
+				}
+				header.style.display = hasVisible ? '' : 'none';
+			});
+		});
+	});
+})();
+</script>

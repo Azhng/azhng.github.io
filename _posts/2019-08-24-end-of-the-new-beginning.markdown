@@ -2,6 +2,7 @@
 layout: post
 title:  "End of the New Beginning"
 date:   2019-08-24 23:04:45 -0400
+category: personal
 ---
 
 Goodbye sucks. It really does.

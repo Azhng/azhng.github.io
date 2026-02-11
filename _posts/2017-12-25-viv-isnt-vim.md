@@ -2,6 +2,7 @@
 layout: post
 title:  "Viv isn't Vim"
 date:   2017-12-25 23:04:45 -0400
+category: professional
 ---
 
 ### Viv Isn't Vim

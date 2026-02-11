@@ -2,6 +2,7 @@
 layout: post
 title:  "Hello World"
 date:   2017-08-08 23:04:45 -0400
+category: personal
 ---
 
 ### Hello World

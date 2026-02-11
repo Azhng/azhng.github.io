@@ -2,6 +2,7 @@
 layout: post
 title:  "Folding Up Wings, and Full Throttle Ahead"
 date:   2021-03-04 00:04:45 -0400
+category: personal
 ---
 
 The fantasy of creating something from absolute nothingness, and to build it into

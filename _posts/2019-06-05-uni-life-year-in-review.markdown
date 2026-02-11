@@ -2,6 +2,7 @@
 layout: post
 title:  "Uni life year-in-review"
 date:   2019-06-05 23:04:45 -0400
+category: personal
 ---
 
 So it has been almost two years since my last post and I have to admit this one is definitely long overdue.
