@@ -92,7 +92,7 @@ K = X @ W_K   "what do I contain?"            (3, 2)
 V = X @ W_V   "what info do I carry?"         (3, 2)
 ```
 
-For this toy example, pretend `Q ≈ K ≈ V ≈ X` (no projection). I'm also skipping the `√d_k` scale here for readability; it doesn't change the ranking for small `d_k`. Here is what happens step by step:
+For this toy example, pretend `Q ≈ K ≈ V ≈ X` (no projection). I'm also skipping the $\sqrt{d_k}$ scale here for readability; it doesn't change the ranking for small `d_k`. Here is what happens step by step:
 
 **Step 1: `Q @ K.T` — how similar is each token to every other token?**
 ```
@@ -389,7 +389,7 @@ At this point it isn't really a word anymore. It is a dense encoding of meaning-
 ## Recap
 
 1. **Attention** = Q @ K.T → softmax → @ V. Each token gets a weighted mix of other tokens' values.
-2. **√d_k scaling** keeps dot products from blowing up softmax.
+2. **$\sqrt{d_k}$ scaling** keeps dot products from blowing up softmax.
 3. **Causal mask** blocks the future. That is what makes generation possible.
 4. **Multi-head** runs several attention patterns in parallel.
 5. **Embeddings change** layer by layer. By the end they encode full context, not just the word.
