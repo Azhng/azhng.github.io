@@ -28,36 +28,36 @@ It is the same block repeated dozens of times. Each block refines the token repr
 
 ```
 "I love cats" → [tokenize + embed]
-                       ↓
-              each token is a vector: (seq_len, d_model)
-                       ↓
-              ┌──── Layer 1 ────┐
-              │  Attention       │  ← tokens look at each other
-              │  Feed-Forward    │  ← each token thinks on its own
-              └─────────────────┘
-                       ↓           still (seq_len, d_model) — same shape!
-              ┌──── Layer 2 ────┐
-              │  Attention       │
-              │  Feed-Forward    │
-              └─────────────────┘
-                       ↓
+                        ↓
+               each token is a vector: (seq_len, d_model)
+                        ↓
+               ┌──── Layer 1 ─────┐
+               │  Attention        │  ← tokens look at each other
+               │  Feed-Forward     │  ← each token thinks on its own
+               └──────────────────┘
+                        ↓            still (seq_len, d_model) — same shape!
+               ┌──── Layer 2 ─────┐
+               │  Attention        │
+               │  Feed-Forward     │
+               └──────────────────┘
+                        ↓
                     ... ×80 ...
-                       ↓
-              ┌──── Layer 80 ───┐
-              │  Attention       │
-              │  Feed-Forward    │
-              └─────────────────┘
-                       ↓
-              (seq_len, d_model)
-                       ↓
-              Take LAST position (for next-token prediction) → (1, d_model)
-                       ↓
-              × unembedding matrix   (d_model, vocab_size)
-                       ↓
-              → logits (1, vocab_size)  e.g. (1, 128000)
-                       ↓
-              softmax → P(next token)
-              "are": 61%, "is": 12%, "were": 8%, ...
+                        ↓
+               ┌──── Layer 80 ────┐
+               │  Attention        │
+               │  Feed-Forward     │
+               └──────────────────┘
+                        ↓
+               (seq_len, d_model)
+                        ↓
+               Take LAST position → (1, d_model)
+                        ↓
+               × unembedding matrix  (d_model, vocab_size)
+                        ↓
+               → logits  (1, vocab_size)  e.g. (1, 128000)
+                        ↓
+               softmax → P(next token)
+               "are": 61%, "is": 12%, "were": 8%, ...
 ```
 
 The unembedding matrix is often just the transpose of the embedding matrix. Same weights, opposite direction. One matmul, not an MLP.
@@ -366,9 +366,9 @@ Attention weights: (8, 16, 16)
 
 This is the thing that ties it all together.
 
-The embedding layer is a lookup table. "cat" maps to some vector `[0.3, 0.9, ...]`. Every "cat" in every sentence starts with the same vector.
+The embedding layer is a lookup table. `"cat"` maps to some vector `[0.3, 0.9, ...]`. A positional encoding is added so the model knows _where_ each token is in the sequence (we are skipping the details here — just know it exists). After that, every `"cat"` at the same position starts with the same vector.
 
-But after attention mixes in the surrounding tokens, it is not just "cat" anymore:
+But after attention mixes in the surrounding tokens, it is not just `"cat"` anymore:
 
 ```
 "My fixed male yellow cat sat on the mat"
