@@ -60,6 +60,12 @@ MAJOR GAPS:
    e.g. "128K tokens × 128K tokens × 4 bytes = 64 GB just for one
    intermediate matrix" — this IS mentioned on line 98 but deserves
    more emphasis, maybe its own subsection or a worked calculation.
+
+10. EXPLAIN GQA MECHANISM: Post 2 hand-waves GQA as "several query heads
+    share the same K, V head" and promises a future explanation. This post
+    (or a dedicated section) should cover the actual mechanism: how query
+    heads are grouped, why it saves memory without losing much quality,
+    and how it compares to MHA and MQA. Also mention MLA (DeepSeek) briefly.
 ===
 -->
 
