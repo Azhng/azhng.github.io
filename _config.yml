@@ -9,6 +9,7 @@ twitter_username: a_zhng
 linkedin_username: a-zhng
 github_username:  Azhng
 author_name: Archer Zhang
+cloudflare_web_analytics_token: ""
 
 # Build settings
 highlighter:        rouge

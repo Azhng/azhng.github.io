@@ -5,9 +5,9 @@ permalink: /writings/
 ---
 
 <div class="writing-tabs">
-	<button class="tab-btn active" data-filter="all">All</button>
-	<button class="tab-btn" data-filter="professional">Professional</button>
-	<button class="tab-btn" data-filter="personal">Personal</button>
+	<a class="tab-btn active" data-filter="all" href="{{ '/writings/' | relative_url }}">All</a>
+	<a class="tab-btn" data-filter="professional" href="{{ '/writings/' | relative_url }}?category=professional">Professional</a>
+	<a class="tab-btn" data-filter="personal" href="{{ '/writings/' | relative_url }}?category=personal">Personal</a>
 </div>
 
 <section>
@@ -56,35 +56,52 @@ permalink: /writings/
 	var buttons = document.querySelectorAll('.tab-btn');
 	var posts = document.querySelectorAll('.post-item');
 	var headers = document.querySelectorAll('.year-header');
+	var validFilters = {
+		all: true,
+		professional: true,
+		personal: true
+	};
 
-	buttons.forEach(function(btn) {
-		btn.addEventListener('click', function() {
-			buttons.forEach(function(b) { b.classList.remove('active'); });
-			btn.classList.add('active');
+	function getFilterFromQuery() {
+		var params = new URLSearchParams(window.location.search);
+		var filter = params.get('category') || 'all';
+		return validFilters[filter] ? filter : 'all';
+	}
 
-			var filter = btn.getAttribute('data-filter');
-
-			posts.forEach(function(post) {
-				if (filter === 'all' || post.getAttribute('data-category') === filter) {
-					post.style.display = '';
-				} else {
-					post.style.display = 'none';
-				}
-			});
-
-			headers.forEach(function(header) {
-				var hasVisible = false;
-				var el = header.nextElementSibling;
-				while (el && !el.classList.contains('year-header')) {
-					if (el.classList.contains('post-item') && el.style.display !== 'none') {
-						hasVisible = true;
-						break;
-					}
-					el = el.nextElementSibling;
-				}
-				header.style.display = hasVisible ? '' : 'none';
-			});
+	function applyFilter(filter) {
+		buttons.forEach(function(btn) {
+			var isActive = btn.getAttribute('data-filter') === filter;
+			if (isActive) {
+				btn.classList.add('active');
+				btn.setAttribute('aria-current', 'page');
+			} else {
+				btn.classList.remove('active');
+				btn.removeAttribute('aria-current');
+			}
 		});
-	});
+
+		posts.forEach(function(post) {
+			if (filter === 'all' || post.getAttribute('data-category') === filter) {
+				post.style.display = '';
+			} else {
+				post.style.display = 'none';
+			}
+		});
+
+		headers.forEach(function(header) {
+			var hasVisible = false;
+			var el = header.nextElementSibling;
+			while (el && !el.classList.contains('year-header')) {
+				if (el.classList.contains('post-item') && el.style.display !== 'none') {
+					hasVisible = true;
+					break;
+				}
+				el = el.nextElementSibling;
+			}
+			header.style.display = hasVisible ? '' : 'none';
+		});
+	}
+
+	applyFilter(getFilterFromQuery());
 })();
 </script>
