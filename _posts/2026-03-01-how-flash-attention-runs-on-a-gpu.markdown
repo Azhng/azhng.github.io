@@ -21,7 +21,7 @@ Parts 1-3 were all numpy — paste into a REPL and run. This one is different. T
 - [From 2D indexing to pointer arithmetic](#from-2d-indexing-to-pointer-arithmetic)
 - [Fused attention with online softmax](#fused-attention-with-online-softmax)
 - [The attention kernel](#the-attention-kernel)
-- [Benchmark: CPU vs GPU attention](#benchmark-cpu-vs-gpu-attention)
+- [Benchmark: standard vs flash attention](#benchmark-standard-vs-flash-attention)
 - [Recap](#recap)
 
 ---
@@ -551,24 +551,50 @@ Matches the PyTorch reference to ~1e-5. The full `(seq_len, seq_len)` matrix was
 
 ---
 
-## Benchmark: CPU vs GPU attention {#benchmark-cpu-vs-gpu-attention}
+## Benchmark: standard vs flash attention {#benchmark-standard-vs-flash-attention}
 
-Part 3's flash attention runs on CPU in numpy — same algorithm, same tiling, same online softmax. Just sequential loops instead of parallel GPU execution. Here they are side by side (Colab T4):
+I wanted to see how our kernel actually performs. Not just "GPU faster than CPU" (obviously), but against PyTorch's standard attention (unfused, materializes the full n×n score matrix in HBM) and against `F.scaled_dot_product_attention` (SDPA — production flash attention using FlashAttention-2 under the hood).
+
+**Standard attention** is what you get when you write `softmax(Q @ K.T) @ V` in PyTorch. In eager mode, each operation — matmul, softmax, matmul — is a separate CUDA kernel dispatch. The n×n score matrix lives in HBM between steps. No fusion, no tiling.
+
+**SDPA** is PyTorch's built-in that uses FlashAttention-2 (or other optimized backends). Fully fused, warp-specialized, double-buffered — all the things our teaching kernel doesn't do.
+
+Results on a Colab T4:
 
 ```
-Causal Flash Attention: CPU (NumPy) vs GPU (Triton)
+Causal Attention Benchmark
 d_k=64, 10 iterations after 3 warmup
------------------------------------------------------------------
-  seq_len=  128:  CPU     0.657ms  GPU     0.136ms  ->     4.8x  (match=True)
-  seq_len=  256:  CPU     1.470ms  GPU     0.267ms  ->     5.5x  (match=True)
-  seq_len=  512:  CPU     5.090ms  GPU     0.512ms  ->     9.9x  (match=True)
-  seq_len= 1024:  CPU    21.532ms  GPU     1.001ms  ->    21.5x  (match=True)
-  seq_len= 2048:  CPU    75.180ms  GPU     2.298ms  ->    32.7x  (match=True)
+     n    scores      standard    our triton          SDPA     cpu numpy    std/SDPA
+-------------------------------------------------------------------------------------
+   128     0.1MB       0.546ms       0.324ms       0.074ms       1.091ms       7.4x
+   256     0.2MB       0.796ms       0.390ms       0.186ms       3.107ms       4.3x
+   512     1.0MB       0.368ms       0.355ms       0.114ms      16.915ms       3.2x
+  1024     4.0MB       0.311ms       0.539ms       0.211ms      34.609ms       1.5x
+  2048    16.0MB       1.178ms       1.440ms       0.502ms             —       2.3x
+  4096    64.0MB       4.654ms       5.567ms       1.275ms             —       3.7x
+  8192   256.0MB      19.086ms      20.390ms       3.945ms             —       4.8x
+ 16384  1024.0MB      77.059ms      81.196ms      15.295ms             —       5.0x
+ 32768  4096.0MB           OOM     338.959ms      92.026ms             —           —
 ```
 
-Same algorithm, same tiles, same online softmax — the GPU version is faster because thousands of tiles run in parallel instead of being processed one at a time.
+This was humbling. A few things jumped out:
 
-The speedup grows with sequence length: more tiles means more parallelism to fill the SMs. At 2048 tokens the GPU is ~33x faster. And this is on a free Colab T4 — not exactly a beefy GPU.
+**Our kernel doesn't beat standard PyTorch.** At every size, our Triton flash attention is roughly tied with — or slower than — naive PyTorch doing separate matmul and softmax calls. Writing a correct fused kernel is not enough. PyTorch dispatches to cuBLAS (matmul) and cuDNN (softmax), which are hand-tuned by NVIDIA engineers with warp specialization, double-buffering, architecture-specific tuning. Our 64×64 tiles with no pipelining can't compete.
+
+**SDPA (production flash attention) crushes everything.** 5x faster than standard at n=16384. This is what a properly optimized flash attention implementation looks like — FlashAttention-2 with all the tricks: warp specialization (some warps load data while others compute), double-buffering (prefetch the next tile while computing the current one), and tile sizes tuned for specific GPU architectures.
+
+**The OOM at n=32768 is the capacity win.** Standard attention tries to allocate a 4 GB score matrix and dies. Our kernel and SDPA keep running because they never materialize it. Even when our kernel is slower in raw time, it runs on inputs that standard attention physically can't handle.
+
+I verified that standard attention is actually materializing the score matrix by tracking peak GPU memory:
+
+```
+n=4096, d_k=64
+  Score matrix size:        64.0 MB
+  Standard peak alloc:     196.0 MB  ← includes score matrix
+  SDPA peak alloc:           2.0 MB  ← no score matrix
+```
+
+The gap is real — standard attention allocates the full n×n matrix. SDPA doesn't.
 
 ---
 
@@ -581,6 +607,8 @@ The speedup grows with sequence length: more tiles means more parallelism to fil
 | Running numerator accumulation | `acc = rescale * acc + weights @ v` | Fuses softmax and `@ V` in one pass |
 | O(n²) intermediate avoidance | No global `scores` or `weights` materialization | Cuts HBM traffic and memory footprint |
 
-Part 3 explained _why_ Flash Attention works — how online softmax lets you tile the computation without the full score matrix. This post showed _where_ each piece lives on GPU hardware: Q tiles stay resident in SRAM, K/V tiles stream from HBM, score tiles are born and die on-chip.
+The benchmark taught me something I didn't expect going in: understanding the algorithm is the first step, not the last. Our kernel is _correct_ — it computes exact attention without materializing the score matrix, and it handles inputs that standard attention OOMs on. But it's not _fast_. The gap between "I implemented the algorithm" and "I beat cuBLAS" is filled with warp specialization, double-buffering, architecture-specific tile sizes, and years of engineering effort.
 
-The kernel here is intentionally minimal — single sequence, no batching, no multi-head dispatch, no backward pass. Real implementations (like Dao et al.'s [flash-attn](https://github.com/Dao-AILab/flash-attention)) add all of that plus FP8, pipelining, and architecture-specific tuning. But the core loop — load a K/V tile, compute scores, update running state, accumulate into `acc` — is the same algorithm we wrote in numpy, running on 108 SMs at 19 TB/s.
+The real payoff of flash attention shows in `std/SDPA`: production implementations (FlashAttention-2) that combine the algorithm with GPU-specific optimization get 5x+ over standard attention at long sequences and handle inputs that would otherwise OOM. Our kernel demonstrates the algorithm on real hardware. SDPA demonstrates the engineering.
+
+Part 3 explained _why_ Flash Attention works. This post showed _where_ each piece lives on GPU hardware — and that putting the algorithm on a chip is only the beginning.
