@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "Forcing Flash Attention onto a TPU and Learning the Hard Way"
-date:   2026-03-07 12:00:00 -0500
+date:   2026-03-06 12:00:00 -0500
 category: professional
 math: true
 ---
@@ -347,9 +347,9 @@ But here's the thing. The outer loop over Q blocks has **zero data dependency** 
 
 `fori_loop` likely hides this parallelism from the compiler. XLA is a JIT compiler — it does dataflow analysis on the computation graph. If it could *see* that the Q blocks are independent, it could potentially schedule them in parallel, interleave their memory loads, maybe even dispatch them to different MXUs.
 
-But `fori_loop` is opaque — it presents as "a loop with carried state." The compiler likely doesn't analyze whether iterations are independent, and probably just compiles them sequentially.
+But `fori_loop` is opaque — it presents as "a loop with carried state." At minimum, the compiler isn't getting an explicit "these iterations are independent" signal from the code.
 
-So what if I just... told XLA that the Q tiles have no dependencies on each other — that it's free to pipeline them?
+So what if I just... told XLA that the Q tiles have no dependencies on each other?
 
 ---
 
@@ -460,13 +460,13 @@ max diff: 0.000000
 
 **45x faster at n=16384.** Same algorithm. Same tiles. Same math. The only difference: `vmap` instead of `fori_loop` on the outer Q dimension.
 
-And look at the fused column — at n=4096+, vmap flash attention **beats** XLA's fused standard attention. The crossover is right around where the score matrix starts getting large (64 MB at n=4096, exceeding VMEM at n=8192). Below that, XLA's fully fused path keeps everything on-chip and wins. Above that, the tiled approach avoids materializing the score matrix entirely — exactly the same win as on GPU, just at a higher threshold because TPU has more on-chip memory.
+And look at the fused column — in this benchmark, vmap flash attention doesn't pull ahead until `n=8192`, when the score matrix is 256 MB and no longer fits in ~128 MB of VMEM. At `n=4096`, XLA's fused standard path still wins comfortably. Below that threshold, the fully fused path keeps everything on-chip and wins. Above it, the tiled approach avoids materializing the score matrix entirely — exactly the same win as on GPU, just at a higher threshold because TPU has more on-chip memory.
 
 This was the biggest "aha" moment of the whole project. The algorithm was never the problem. The compiler just couldn't see the parallelism through `fori_loop`.
 
 ---
 
-The practical story is done — the vmap fix works, flash attention beats fused standard at large sizes on TPU. But I was left with the nagging question: *why* did the original fail so badly? What is the hardware actually doing with those tiles? The rest of this post is the rabbit hole I fell into trying to answer that. It shifts from experiment log to architecture explainer — feel free to stop here if the benchmark results are all that matters.
+The practical story is done — the `vmap` fix works, and in this benchmark it beats fused standard attention once the score matrix outgrows VMEM. But I was left with the nagging question: *why* did the original fail so badly? What is the hardware actually doing with those tiles? The rest of this post is the rabbit hole I fell into trying to answer that. It shifts from experiment log to architecture explainer — feel free to stop here if the benchmark results are all that matters.
 
 ---
 
@@ -847,7 +847,7 @@ So how does Splash Attention actually beat XLA's fused path? **Pallas** — JAX'
 
 The three things Pallas provides that pure JAX can't express:
 
-1. **DMA pipelining.** The `fori_loop` implementation likely does load-wait-compute-load-wait-compute. A Pallas kernel can double-buffer: while the MXU computes on the current tile, the DMA engine fetches the next tile into a separate VMEM buffer. Compute and memory transfer overlap completely. According to the [Pallas documentation](https://docs.jax.dev/en/latest/pallas/index.html), this alone can be a 2-3x win.
+1. **DMA pipelining.** The `fori_loop` implementation likely does load-wait-compute-load-wait-compute. A Pallas kernel can double-buffer: while the MXU computes on the current tile, the DMA engine fetches the next tile into a separate VMEM buffer. Compute and memory transfer overlap instead of serializing.
 
 2. **MXU-matched tiling with causal skipping.** A 2D Pallas grid `(num_q_blocks, num_kv_blocks)` gives Mosaic full visibility into the iteration pattern. It knows which tiles are fully masked by the causal triangle and skips them entirely — no wasted MXU cycles.
 
