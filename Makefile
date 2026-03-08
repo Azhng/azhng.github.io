@@ -4,7 +4,7 @@ CONTAINER_NAME ?= azhng-jekyll-dev
 IMAGE ?= jekyll/jekyll:latest
 PORT ?= 4000
 
-JEKYLL_SERVE_ARGS ?= --host 0.0.0.0 --port 4000 --force_polling
+JEKYLL_SERVE_ARGS ?= --host 0.0.0.0 --port 4000 --force_polling --drafts
 
 .PHONY: start stop logs status restart
 
@@ -16,6 +16,7 @@ start:
 		--name "$(CONTAINER_NAME)" \
 		-p "$(PORT):4000" \
 		-v "$(CURDIR):/srv/jekyll" \
+		-v jekyll-bundle-cache:/usr/local/bundle \
 		"$(IMAGE)" \
 		jekyll serve $(JEKYLL_SERVE_ARGS)
 	@echo "Jekyll server: http://localhost:$(PORT)"
