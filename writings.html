@@ -5,8 +5,7 @@ permalink: /writings/
 ---
 
 <div class="writing-tabs">
-	<a class="tab-btn active" data-filter="all" href="{{ '/writings/' | relative_url }}">All</a>
-	<a class="tab-btn" data-filter="professional" href="{{ '/writings/' | relative_url }}?category=professional">Professional</a>
+	<a class="tab-btn active" data-filter="professional" href="{{ '/writings/' | relative_url }}">Professional</a>
 	<a class="tab-btn" data-filter="personal" href="{{ '/writings/' | relative_url }}?category=personal">Personal</a>
 </div>
 
@@ -57,15 +56,14 @@ permalink: /writings/
 	var posts = document.querySelectorAll('.post-item');
 	var headers = document.querySelectorAll('.year-header');
 	var validFilters = {
-		all: true,
 		professional: true,
 		personal: true
 	};
 
 	function getFilterFromQuery() {
 		var params = new URLSearchParams(window.location.search);
-		var filter = params.get('category') || 'all';
-		return validFilters[filter] ? filter : 'all';
+		var filter = params.get('category') || 'professional';
+		return validFilters[filter] ? filter : 'professional';
 	}
 
 	function applyFilter(filter) {
@@ -81,7 +79,7 @@ permalink: /writings/
 		});
 
 		posts.forEach(function(post) {
-			if (filter === 'all' || post.getAttribute('data-category') === filter) {
+			if (post.getAttribute('data-category') === filter) {
 				post.style.display = '';
 			} else {
 				post.style.display = 'none';
