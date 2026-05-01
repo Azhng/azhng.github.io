@@ -2,9 +2,9 @@ SHELL := /bin/zsh
 
 CONTAINER_NAME ?= azhng-jekyll-dev
 IMAGE ?= jekyll/jekyll:latest
-PORT ?= 4000
+PORT ?= 7109
 
-JEKYLL_SERVE_ARGS ?= --host 0.0.0.0 --port 4000 --force_polling --drafts
+JEKYLL_SERVE_ARGS ?= --host 0.0.0.0 --port 7109 --force_polling --drafts
 
 .PHONY: start stop logs status restart
 
@@ -14,7 +14,7 @@ start:
 	fi
 	docker run -d \
 		--name "$(CONTAINER_NAME)" \
-		-p "$(PORT):4000" \
+		-p "$(PORT):7109" \
 		-v "$(CURDIR):/srv/jekyll" \
 		-v jekyll-bundle-cache:/usr/local/bundle \
 		"$(IMAGE)" \

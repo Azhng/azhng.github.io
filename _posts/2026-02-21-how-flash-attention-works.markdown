@@ -8,11 +8,11 @@ math: true
 
 This is the third post in a series on LLM internals. [Part 1 covered attention](/how-attention-actually-works). [Part 2 covered generation](/how-llms-generate-text). This post: the Flash Attention algorithm and why it matters for long contexts.
 
-Standard attention creates a score matrix that's `(seq_len, seq_len)`. That's O(n²) memory. At 128K tokens, it's ~64 GB — for one attention head. [Flash Attention](https://arxiv.org/abs/2205.14135) (Dao et al., 2022) avoids this by tiling the computation into small blocks and using an online softmax trick to never build the full matrix. The result is O(n) memory and the same exact output.
+Standard attention creates a score matrix that's `(seq_len, seq_len)`. That's O(n²) memory. At 128K tokens, it's ~64 GB for one attention head. [Flash Attention](https://arxiv.org/abs/2205.14135) (Dao et al., 2022) avoids this by tiling the computation into small blocks and using an online softmax trick to never build the full matrix. The result is O(n) memory and the same exact output.
 
-There are now multiple versions — [v2](https://arxiv.org/abs/2307.08691) improved GPU utilization with better parallelism, [v3](https://arxiv.org/abs/2407.08691) added async memory ops and FP8 for H100s, and [v4](https://tridao.me/blog/2025/flash4/) targets Blackwell GPUs with deeper pipelining. The core algorithm — tiling + online softmax — is the same across all of them. The versions differ in how they map that algorithm to GPU hardware. This post covers the algorithm.
+There are now multiple versions. [v2](https://arxiv.org/abs/2307.08691) improved GPU utilization with better parallelism, [v3](https://arxiv.org/abs/2407.08691) added async memory ops and FP8 for H100s, and [v4](https://tridao.me/blog/2025/flash4/) targets Blackwell GPUs with deeper pipelining. The core algorithm (tiling + online softmax) is the same across all of them. The versions differ in how they map that algorithm to GPU hardware. This post covers the algorithm.
 
-All code here is numpy — runnable in a Python REPL, no GPU required. Fair warning: the online softmax section gets into some math. Not hard math, but there's a derivation I had to work through step by step before it clicked.
+All code here is numpy, runnable in a Python REPL, no GPU required. Fair warning: the online softmax section gets into some math. Not hard math, but there's a derivation I had to work through step by step before it clicked.
 
 **Contents**
 - [The O(n²) memory problem](#the-on2-memory-problem)
@@ -45,7 +45,7 @@ At 128K tokens, the score matrix alone is ~64 GB. An A100 has 80 GB total. And t
 
 ## Standard attention {#standard-attention}
 
-From [Part 1](/how-attention-actually-works) — the version that creates the full score matrix:
+From [Part 1](/how-attention-actually-works), the version that creates the full score matrix:
 
 ```python
 import numpy as np
@@ -81,13 +81,13 @@ Scores:   (8, 8) — this is the O(n²) matrix
 Output:   (8, 4)
 ```
 
-Three steps. Two intermediate matrices of size `(seq_len, seq_len)`. In this implementation, both live in memory at the same time.
+Three steps. Two intermediate matrices of size `(seq_len, seq_len)`. In this implementation, both live in memory at the same time. When I first looked at this, the natural question was: does the algorithm actually need the full matrix at once, or is that just an artifact of how we wrote it?
 
 ---
 
 ## Online softmax {#online-softmax}
 
-Flash Attention depends on being able to compute softmax without seeing all the scores at once. Here's how that works.
+Flash Attention depends on being able to compute softmax without seeing all the scores at once. This is the part I had to sit with the longest before it clicked.
 
 Softmax of a vector $x$:
 
@@ -115,13 +115,13 @@ softmax: [0.0147 0.1087 0.0089 0.04   0.8034 0.0243]
 
 Computing `softmax(x[0])` needed `max(x)` and `sum(exp(x - m))`. Both require the entire vector. No way to start outputting early.
 
-**Online softmax** processes $x$ in chunks, maintaining a running max and running sum:
+Online softmax processes $x$ in chunks, maintaining a running max and running sum:
 
 $$m_{\text{new}} = \max(m_{\text{old}},\; \max(\text{chunk}))$$
 
 $$\text{running_sum} \leftarrow \text{running_sum} \cdot e^{m_{\text{old}} - m_{\text{new}}} + \sum_{i \in \text{chunk}} e^{x_i - m_{\text{new}}}$$
 
-When a new chunk has a higher max, the old sum gets multiplied by $e^{m_{\text{old}} - m_{\text{new}}}$. Since $m_{\text{new}} \geq m_{\text{old}}$, this factor is $\leq 1$ — old terms shrink, which makes sense when a bigger value shows up.
+When a new chunk has a higher max, the old sum gets multiplied by $e^{m_{\text{old}} - m_{\text{new}}}$. Since $m_{\text{new}} \geq m_{\text{old}}$, this factor is $\leq 1$, so old terms shrink. This makes sense: a bigger value showed up.
 
 <details>
 <summary>Why the rescaling works (derivation)</summary>
@@ -186,7 +186,7 @@ Max difference: 0.00e+00
 
 Same result. But online softmax computed the max and sum in two chunks of 3, without needing the full vector for those.
 
-One thing to notice: the last line of `online_softmax` — `result = np.exp(x - running_max) / running_sum` — still touches the full vector. This is just a demo of the algorithm. Flash Attention avoids this by building the output incrementally inside the loop, as shown next.
+One thing to notice: the last line of `online_softmax` (`result = np.exp(x - running_max) / running_sum`) still touches the full vector. This is a demo of the algorithm. Flash Attention avoids this by building the output incrementally inside the loop, as shown next.
 
 ---
 
@@ -196,27 +196,27 @@ Standard attention treats softmax as a black box:
 
 $$\text{output} = \text{softmax}\!\left(\frac{QK^T}{\sqrt{d_k}}\right) \cdot V$$
 
-Written this way, softmax has to finish before `@ V` starts. Expanding the softmax shows why that's not actually necessary.
+Written this way, softmax has to finish before `@ V` starts. The thing that made Flash Attention click for me was expanding the softmax and seeing why that barrier is not actually necessary.
 
-**What does `@ V` do?** For query row $i$, the output is a weighted sum of all $V$ rows:
+For query row $i$, the `@ V` step computes a weighted sum of all $V$ rows:
 
 $$\text{output}_i = \sum_j w_{ij} \cdot V_j$$
 
-Each $V_j$ is a `(d_v,)` vector. $w_{ij}$ is a scalar — "how much should query $i$ attend to key $j$." The result $\text{output}_i$ is a `(d_v,)` vector, one row of the `(seq_len, d_v)` output matrix. (In the demo code, $d_k = d_v$ for simplicity.)
+Each $V_j$ is a `(d_v,)` vector. $w_{ij}$ is a scalar, "how much should query $i$ attend to key $j$." The result $\text{output}_i$ is a `(d_v,)` vector, one row of the `(seq_len, d_v)` output matrix. (In the demo code, $d_k = d_v$ for simplicity.)
 
-**What's inside the weight?** It's the softmax of the raw score between query $i$ and key $j$:
+The weight $w_{ij}$ is the softmax of the raw score between query $i$ and key $j$:
 
 $$\text{scores}[i,j] = \frac{q_i^T k_j}{\sqrt{d_k}} = \frac{\sum_{l=1}^{d_k} q_{i,l} \cdot k_{j,l}}{\sqrt{d_k}}$$
 
 $$w_{ij} = \frac{e^{\text{scores}[i,j] - m_i}}{\sum_k e^{\text{scores}[i,k] - m_i}}$$
 
-**Substitute back** and notice the denominator is the same for every $j$ in the sum. It pulls out:
+Substituting back, the denominator is the same for every $j$ in the sum, so it pulls out:
 
 $$\text{output}_i = \frac{\overbrace{\sum_j e^{\text{scores}[i,j] - m_i} \cdot V_j}^{\text{numerator: weighted sum of V rows}}}{\underbrace{\sum_j e^{\text{scores}[i,j] - m_i}}_{\text{denominator: just a scalar}}}$$
 
-The numerator is "sum up all $V$ rows, each scaled by its unnormalized weight." The denominator is the normalizing constant from softmax — just a number.
+The numerator is "sum up all $V$ rows, each scaled by its unnormalized weight." The denominator is the normalizing constant from softmax, a scalar.
 
-Since the denominator is a scalar, numerator and denominator can be accumulated separately, tile by tile. Compute a chunk of scores, multiply by the corresponding $V$ rows, add to a running total. Keep a running denominator. Divide once at the end. The full score matrix never needs to exist.
+Since the denominator is a scalar, numerator and denominator can be accumulated separately, tile by tile. Compute a chunk of scores, multiply by the corresponding $V$ rows, add to a running total. Keep a running denominator. Divide once at the end. The full score matrix never needs to exist. This is where the whole algorithm came together for me -- the online softmax trick from the previous section slots right in here.
 
 ### Tiling
 
@@ -334,7 +334,7 @@ for n in [512, 2048, 8192, 32768, 131072]:
    131,072                    68.7 GB                    16.4 KB  4194304×
 ```
 
-This is just the score buffer — both approaches still need Q, K, V, and the output matrix. But those are all O(n), so they're the same. The score matrix is the O(n²) term that dominates, and that's what Flash Attention eliminates.
+This is the score buffer only. Both approaches still need Q, K, V, and the output matrix, but those are all O(n), so they're the same. The score matrix is the O(n²) term that dominates, and that's what Flash Attention eliminates. Staring at the ratio column is what made the memory argument feel real to me -- it is not a constant-factor improvement, it is a different complexity class.
 
 ---
 
@@ -371,12 +371,12 @@ All differences are at floating-point epsilon. The tiling is invisible to the ou
 
 ## Causal masking {#causal-masking}
 
-In autoregressive models (GPT-style), token $i$ can only attend to tokens $\leq i$. The score matrix has a lower-triangular structure — everything above the diagonal is $-\infty$ before softmax, so future tokens get zero weight. ([Part 1](/how-attention-actually-works) covered this.)
+In autoregressive models (GPT-style), token $i$ can only attend to tokens $\leq i$. The score matrix has a lower-triangular structure: everything above the diagonal is $-\infty$ before softmax, so future tokens get zero weight. ([Part 1](/how-attention-actually-works) covered this.) I expected causal masking to complicate the tiling logic significantly, but it turns out to be surprisingly clean.
 
 With tiling, causal masking adds two things:
 
-1. **Skip entire tiles** where the K/V block is entirely in the future. The Q-outer loop handles this naturally: the K/V inner loop runs to `q_end` instead of `seq_len`.
-2. **Mask within tiles** that straddle the diagonal. Set future positions to $-\infty$ before computing softmax weights.
+1. Skip entire tiles where the K/V block is entirely in the future. The Q-outer loop handles this naturally: the K/V inner loop runs to `q_end` instead of `seq_len`.
+2. Mask within tiles that straddle the diagonal. Set future positions to $-\infty$ before computing softmax weights.
 
 ```python
 def flash_attention_causal(Q, K, V, BLOCK_SIZE=2):
@@ -442,7 +442,7 @@ print(f"Max diff (causal flash vs standard): "
 Max diff (causal flash vs standard): 4.44e-16
 ```
 
-The causal score matrix looks like this — $-\infty$ above the diagonal, real scores below:
+The causal score matrix looks like this, with $-\infty$ above the diagonal and real scores below:
 
 ```
 [[-0.59   -inf   -inf   -inf   -inf   -inf   -inf   -inf]
@@ -459,11 +459,9 @@ The causal score matrix looks like this — $-\infty$ above the diagonal, real s
 
 ## Recap {#recap}
 
-Standard attention creates a `(seq_len, seq_len)` score matrix — ~64 GB at 128K tokens, for one attention head. The bottleneck is softmax: it needs the max and sum over the full row before it can produce any output.
+The thing I find most interesting about Flash Attention is that the algorithm itself is not approximate. There is no accuracy tradeoff. The entire trick is noticing that softmax's apparent dependency on the full row -- needing the global max and sum -- can be broken by maintaining running accumulators and rescaling when new information arrives. Once that works for softmax in isolation, the same idea extends to the weighted sum with $V$, and the full attention computation tiles naturally.
 
-Online softmax gets around this by processing scores in chunks and rescaling the running accumulator by $e^{m_{\text{old}} - m_{\text{new}}}$ whenever a bigger value shows up. The result is exact.
+That is a pure systems insight dressed up in math. The attention mechanism did not change. The linear algebra did not change. What changed is how the computation is ordered to respect the memory hierarchy. I think that is why this paper had such outsized impact -- it showed that the gap between "theoretically correct" and "practically runnable at scale" was an algorithmic choice, not a hardware limitation.
 
-Flash Attention applies this to the full attention computation. The numerator (weighted sum of $V$) and denominator (normalizing constant) are accumulated tile by tile. The largest intermediate is `(BLOCK, BLOCK)` instead of `(seq_len, seq_len)`. For causal masking, two additions: stop the K/V loop early, and mask future positions within diagonal tiles.
-
-The output matches standard attention to floating-point epsilon. All the tiling is invisible from the outside.
+This post covered the algorithm in numpy. The real complexity in Flash Attention v2/v3/v4 is mapping these tiles onto GPU thread blocks, warps, and async memory pipelines -- which is a different kind of problem entirely, and maybe a future post.
 

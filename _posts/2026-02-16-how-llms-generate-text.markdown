@@ -6,7 +6,7 @@ category: professional
 math: true
 ---
 
-This is Part 2. [Part 1 covered attention](/how-attention-actually-works) — how tokens look at each other and share information. This post covers how that machinery generates text one token at a time, and why long contexts are expensive.
+This is Part 2. [Part 1 covered attention](/how-attention-actually-works), how tokens look at each other and share information. This post covers how that machinery generates text one token at a time, and why long contexts are expensive. I found the generation loop itself surprisingly simple — the complexity is in what it costs.
 
 Like Part 1, this post includes math and runnable Python. Most examples use numpy; the capstone uses llama-cpp-python.
 
@@ -30,7 +30,7 @@ Any sequence of tokens has a joint probability. The chain rule of probability le
 
 $$P(x_1, x_2, \ldots, x_n) = P(x_1) \cdot P(x_2|x_1) \cdot P(x_3|x_1,x_2) \cdot \ldots \cdot P(x_n|x_1,\ldots,x_{n-1})$$
 
-Each term is a conditional: given everything before, what comes next? An LLM is trained to model these conditionals. That's the whole game — predict the next token given everything before it.
+Each term is a conditional: given everything before, what comes next? An LLM is trained to model these conditionals. That's the whole game: predict the next token given everything before it. Once I internalized this, the rest of the generation machinery fell into place.
 
 Generation is a loop:
 1. Feed all tokens so far through the model
@@ -39,7 +39,7 @@ Generation is a loop:
 4. Append it
 5. Repeat
 
-Here is a toy version. A real transformer uses attention over all previous tokens. This one only looks at the last token (a bigram model). Both produce the same type of output: **a probability distribution over the entire vocabulary.**
+Here is a toy version. A real transformer uses attention over all previous tokens. This one only looks at the last token (a bigram model). Both produce the same type of output: a probability distribution over the entire vocabulary.
 
 ```python
 import numpy as np
@@ -71,7 +71,7 @@ tiny_model = {
 }
 ```
 
-What does the model output? A probability over all 10 tokens — even unlikely ones get some mass:
+What does the model output? A probability over all 10 tokens, even unlikely ones get some mass:
 
 ```python
 print(f"P(· | 'the') — distribution over all {len(vocab)} tokens:\n")
@@ -136,9 +136,7 @@ Greedy decoding picks the most likely token every time. Notice the output loops:
 
 ## Once generated, tokens are fixed
 
-This detail matters.
-
-When the model generates token 50, it is conditioned on tokens 0 through 49. That includes its own previous outputs. It cannot go back and change token 10. Token 10 is part of the context now, just like the user's original prompt.
+When the model generates token 50, it is conditioned on tokens 0 through 49. That includes its own previous outputs. It cannot go back and change token 10. Token 10 is part of the context now, just like the user's original prompt. This was the part that took me longest to really absorb — it sounds obvious stated plainly, but the implications are not.
 
 This is why LLM coding tools can get stuck in a loop:
 1. Early tokens commit to an approach ("Let's use recursion...")
@@ -152,9 +150,9 @@ The fix is mechanical: start a new context. The old commitment is gone, so the m
 
 ## What each step actually costs
 
-The bigram model above does a dict lookup — O(1). A real transformer does something much more expensive.
+The bigram model above does a dict lookup, O(1). A real transformer does something much more expensive. Working through the cost step by step is what made the KV cache click for me later.
 
-At each generation step, the model feeds **all tokens so far** through causal attention. At step 2, that means computing a 3×3 attention matrix. At step 5, a 6×6. Every step recomputes the full matrix from scratch.
+At each generation step, the model feeds all tokens so far through causal attention. At step 2, that means computing a 3×3 attention matrix. At step 5, a 6×6. Every step recomputes the full matrix from scratch.
 
 Trace the same "the cat sat on the cat" sequence, now with transformer attention:
 
@@ -208,7 +206,7 @@ What a transformer computes at each step:
            used last row → predict "sat"
 ```
 
-At step 5, we compute a 6×6 matrix but only need the last row. Rows 0 through 4 were already computed at previous steps — identically, because the causal mask means no earlier token ever looks at a later one. We computed them and threw them away.
+At step 5, we compute a 6×6 matrix but only need the last row. Rows 0 through 4 were already computed at previous steps, identically, because the causal mask means no earlier token ever looks at a later one. We computed them and threw them away.
 
 That is the waste KV caching eliminates.
 
@@ -216,13 +214,13 @@ That is the waste KV caching eliminates.
 
 ## KV caching
 
-In the causal attention matrix from Part 1, adding a new token does not change earlier rows. The causal mask guarantees this: no earlier token attends to a future one.
+The thing that clicked for me about KV caching is that adding a new token does not change earlier rows of the attention matrix. The causal mask guarantees this: no earlier token attends to a future one.
 
-So we can cache the K and V vectors from previous steps. To generate the next token, we compute **one new row** of attention instead of redoing the whole matrix:
+So we can cache the K and V vectors from previous steps. To generate the next token, we compute one new row of attention instead of redoing the whole matrix:
 
 ![KV Cache: each step only computes one new row](/assets/imgs/kv-cache-steps.png)
 
-Each step, only the orange row is new. The blue rows are cached — identical to what we computed at earlier steps. The numbers confirm it: row values don't change as the matrix grows.
+Each step, only the orange row is new. The blue rows are cached, identical to what we computed at earlier steps. The numbers confirm it: row values don't change as the matrix grows.
 
 ```python
 import numpy as np
@@ -262,7 +260,7 @@ Without KV cache:
   Total: 204
 ```
 
-Each dot product is $Q_i \cdot K_j$ — a $d_k$-dimensional vector dot product ($d_k$ multiplies + $d_k - 1$ additions). We count dot products rather than scalar operations because $d_k$ is constant across all steps — it does not change the ratio between cached and uncached.
+Each dot product is $Q_i \cdot K_j$, a $d_k$-dimensional vector dot product ($d_k$ multiplies + $d_k - 1$ additions). We count dot products rather than scalar operations because $d_k$ is constant across all steps and does not change the ratio between cached and uncached.
 
 ```python
 # WITH cache: project each new token ONCE, cache the result
@@ -299,29 +297,21 @@ With caching, generating token `t` costs O(t). Total for n tokens:
 
 $$1 + 2 + 3 + \cdots + n = \frac{n(n+1)}{2} = O(n^2)$$
 
-Without caching, each step recomputes the full matrix: O(t²) at step t, O(n³) total. The cache drops it from cubic to quadratic.
-
-| | Without cache | With cache |
-|---|---|---|
-| Cost at step t | O(t²) full matrix | O(t) one new row |
-| Memory | O(1) nothing stored | O(n) cache grows |
-| Total for n tokens | O(n³) | O(n²) |
-
-The tradeoff: more memory (storing all those K, V vectors) in exchange for less redundant computation.
+Without caching, each step costs O(t²) to recompute the full matrix, O(n³) total for n tokens. With caching, each step costs O(t) for one new row, O(n²) total, but the cache grows to O(n). You trade memory for less redundant computation.
 
 ---
 
 ## Where your VRAM goes
 
-The KV cache stores K and V for every token, at every layer. The formula:
+I didn't appreciate how much memory the KV cache eats until I ran the numbers. It stores K and V for every token, at every layer. The formula:
 
 ```
 KV cache per token = 2 (K and V) × num_layers × num_kv_heads × head_dim × bytes_per_param
 ```
 
-`bytes_per_param` is 2 for BF16/FP16 (the standard serving precision) — each value is stored as a 16-bit float. Quantized serving (e.g. INT8) cuts this to 1 byte.
+`bytes_per_param` is 2 for BF16/FP16 (the standard serving precision). Each value is stored as a 16-bit float. Quantized serving (e.g. INT8) cuts this to 1 byte.
 
-In classic multi-head attention (MHA), every attention head has its own K and V, so `num_kv_heads × head_dim = d_model`. Modern models often use **Grouped Query Attention (GQA)**[^gqa]: several query heads share one K/V head, which reduces KV memory. [Llama 3](https://ai.meta.com/blog/meta-llama-3/) uses 8 KV heads across model sizes:
+In classic multi-head attention (MHA), every attention head has its own K and V, so `num_kv_heads × head_dim = d_model`. Modern models often use Grouped Query Attention (GQA)[^gqa]: several query heads share one K/V head, which reduces KV memory. [Llama 3](https://ai.meta.com/blog/meta-llama-3/) uses 8 KV heads across model sizes:
 
 ```python
 models = {
@@ -346,22 +336,22 @@ Llama 3 70B               8   0.33 MB      1.3 GB     43.0 GB
 Llama 3.1 405B            8   0.52 MB      2.1 GB     67.6 GB
 ```
 
-This is **on top of model weights.** An 8B model in fp16 takes ~16 GB. A 70B model takes ~140 GB. The KV cache is additional.
+This is on top of model weights. An 8B model in fp16 takes ~16 GB. A 70B model takes ~140 GB. The KV cache is additional.
 
 GQA keeps per-token KV cost low. But it still adds up:
-- **Long contexts are expensive.** At 128K tokens, even the 8B model's cache is 17 GB — a meaningful fraction of an A100's 80 GB.
-- **Serving many users multiplies it.** Each user gets their own KV cache. Ten concurrent users at 4K context on a 70B model: ~13 GB just for caches. Servers use *continuous batching* to interleave requests, so many caches are alive at once.
-- **Context window limits are partly a memory constraint** — but also depend on the position encoding and how the model was trained.
-- **Quantization helps.** Serving in INT8 instead of BF16 halves the KV cache.
+- At 128K tokens, even the 8B model's cache is 17 GB, a meaningful fraction of an A100's 80 GB.
+- Each user gets their own KV cache. Ten concurrent users at 4K context on a 70B model: ~13 GB just for caches. Servers use *continuous batching* to interleave requests, so many caches are alive at once.
+- Context window limits are partly a memory constraint, but also depend on the position encoding and how the model was trained.
+- Serving in INT8 instead of BF16 halves the KV cache.
 
 ---
 
 ## Prefill vs decode
 
-When you use an LLM, there is usually a pause before text starts streaming.
+This section connected some dots for me. When using an LLM, there is usually a pause before text starts streaming.
 
-1. **Prefill** (the pause): process the entire prompt at once. Populate the KV cache for all layers. Cost: O(S²) where S is prompt length.
-2. **Decode** (the stream): generate one token at a time, each one adding a row to the KV cache. Cost: O(S+t) per token.
+1. Prefill (the pause): process the entire prompt at once. Populate the KV cache for all layers. Cost: O(S²) where S is prompt length.
+2. Decode (the stream): generate one token at a time, each one adding a row to the KV cache. Cost: O(S+t) per token.
 
 ```
 You paste 50K tokens of code + a question
@@ -371,7 +361,7 @@ You paste 50K tokens of code + a question
 slow: processing your whole prompt  fast: one token at a time
 ```
 
-The pause is called **Time to First Token (TTFT)**. Longer prompt means longer wait. And because attention is O(S²), the cost scales quadratically — double the prompt, quadruple the wait:
+The pause is called Time to First Token (TTFT). Longer prompt means longer wait. Because attention is O(S²), the cost scales quadratically. Double the prompt, quadruple the wait:
 
 ```python
 base = 8  # 8K as baseline
@@ -395,7 +385,7 @@ for n in [8, 16, 32, 64, 128, 200]:
 
 ## Capstone: a real transformer
 
-Everything above used numpy and toy models. Next, run the same generation loop on a real transformer — [SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct), 135 million parameters, running locally via [llama-cpp-python](https://github.com/abetlen/llama-cpp-python).
+Everything above used numpy and toy models. I wanted to see the same loop running on a real model, so here it is with [SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct), 135 million parameters, running locally via [llama-cpp-python](https://github.com/abetlen/llama-cpp-python).
 
 We use the low-level API so we can see every step: eval, get logits, softmax, sample, eval again.
 
@@ -488,7 +478,7 @@ print(f"\n  Result: The cat sat on{''.join(generated)}")
 
 ### Temperature
 
-Greedy decoding always picks the top token — deterministic but repetitive (remember the toy model looping "the cat sat on the cat sat"?). **Temperature** scales the logits before softmax: `softmax(logits / temp)`.
+Greedy decoding always picks the top token, deterministic but repetitive (remember the toy model looping "the cat sat on the cat sat"?). Temperature scales the logits before softmax: `softmax(logits / temp)`.
 
 - Lower temp → sharper distribution → more predictable text
 - Higher temp → flatter distribution → more creative (or incoherent)
@@ -523,42 +513,31 @@ for temp in [0.0, 0.3, 0.8, 1.5]:
   temp=1.5     The cat sat on 5 rose bushes growing this directions out through mourbing gait continuing scenario (Once down many poppy flowers
 ```
 
-At temp=0.3, the output is close to greedy. At temp=1.5, it often becomes incoherent. There's also **top-k** (only consider the k most likely tokens) and **top-p** / nucleus sampling (consider the smallest set of tokens whose cumulative probability exceeds p), but the generation loop is the same.
+At temp=0.3, the output is close to greedy. At temp=1.5, it often becomes incoherent. There's also top-k (only consider the k most likely tokens) and top-p / nucleus sampling (consider the smallest set of tokens whose cumulative probability exceeds p), but the generation loop is the same.
 
-Compare this to the toy bigram loop at the top:
-
-| | Toy bigram | Real transformer |
-|---|---|---|
-| Get distribution | `probs = tiny_model[token]` | `llm.eval([token_id])` then `softmax(llm._scores[-1])` |
-| Vocab size | 10 tokens | 49,152 tokens |
-| Pick next | `max(probs, key=probs.get)` | `np.argmax(probs)` |
-| The loop | identical | identical |
-
-The difference is where the distribution comes from. The loop structure is the same.
+The toy bigram does `probs = tiny_model[token]` over 10 tokens. The real transformer does `llm.eval([token_id])` then `softmax(llm._scores[-1])` over 49,152 tokens. The picking step is the same (`argmax`). The loop is identical. The only difference is where the distribution comes from. Seeing the same structure at both scales is what made me confident I actually understood the generation loop and not just a simplified version of it.
 
 ---
 
 ## Why this matters in practice
 
-| You see | The mechanism | What helps |
-|---------|--------------|------------|
-| Keeps making the same mistake | Autoregressive: early wrong tokens lock in the approach, everything after builds on them | Fresh context, explicit "stop and reconsider" |
-| Seems to forget instructions | Long context dilutes attention — models retrieve better from the [beginning and end](https://arxiv.org/abs/2307.03172) than from the middle | Repeat key instructions, put them at start and end |
-| Makes up file contents | Predicts what would plausibly come next. No file in context means it generates plausible-looking content | Make sure files are actually in context |
-| Slow on long prompts | O(n²) prefill. 100K context is ~156x more expensive than 8K | Use the minimum context you need |
+A model that keeps making the same mistake is autoregressive generation at work: early wrong tokens lock in the approach, and everything after builds on them. A fresh context lets it try a different path.
 
-The key point: **context is not a bucket you dump things into.** It is input to an attention mechanism with real costs and limits. Use it deliberately.
+Long context dilutes attention. Models retrieve better from the [beginning and end](https://arxiv.org/abs/2307.03172) than from the middle, which is why a model seems to forget instructions buried in the prompt. Repeating key instructions at the start and end helps.
+
+When a model makes up file contents, it is predicting what would plausibly come next. No file in context means it generates plausible-looking content. Make sure files are actually in context.
+
+Slow responses on long prompts come from O(n²) prefill. 100K context is ~156x more expensive than 8K. Use the minimum context you need.
+
+Context is not a bucket you dump things into. It is input to an attention mechanism with real costs and limits. Use it deliberately.
 
 ---
 
-## Recap
+## Looking back
 
-1. **Generation** = predict next token, pick one, append, repeat. Always forward, never backward.
-2. **Tokens are permanent.** Once generated, they are part of the context. The model cannot revise them.
-3. **KV caching** stores previous K, V vectors. Drops generation from O(n³) to O(n²).
-4. **VRAM** = model weights + KV cache per user. GQA helps, but long contexts still eat memory.
-5. **Prefill vs decode.** The pause before streaming is O(n²) prefill. Double context, quadruple the wait.
-6. **Same loop, real model.** SmolLM2-135M runs the identical predict-pick-append loop. Temperature controls randomness; top-k and top-p control which tokens are even considered.
+The thread running through all of this is that context is not free. The generation loop is simple — predict, pick, append — but every token added makes the next step more expensive and the KV cache larger. That cost is what connects the "tokens are fixed" problem to the VRAM numbers to the prefill pause: they are all downstream of the same O(n) per-step, O(n^2) total reality.
+
+I think the practical upshot is that context management is the real skill in working with LLMs. Not prompt phrasing, not temperature tuning — deciding what goes into context and what stays out. Part 3 will cover how models actually learn these distributions: pretraining, loss functions, and what the training data implies about the model's behavior.
 
 
 [^gqa]: GQA groups multiple query heads under a single K/V head. DeepSeek's [Multi-Latent Attention (MLA)](https://arxiv.org/abs/2405.04434) compresses KV further into a low-rank latent vector; MLA is out of scope for this post.

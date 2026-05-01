@@ -487,7 +487,7 @@ TPU v5e chip
 
 On a GPU, the SM is built around CUDA cores, scalar ALUs, 32 of which execute in lockstep as a warp (Part 4 covered this). Tensor cores are a separate thing, specialized matrix multiply units bolted onto each SM. They accelerate matmul, but the SM's general-purpose work still runs on CUDA cores. Tensor cores are an accelerator, not the foundation.
 
-A TPU flips this. The MXU (Matrix Multiply Unit) isn't a bolt-on accelerator, it's the primary compute engine. Each MXU is a 128x128 systolic array: 16,384 multiply-accumulate cells. The v5e has 4 MXUs per chip, all fed from the same VMEM. Everything that can be expressed as a matrix multiply goes through the MXUs.
+A TPU flips this, and it's where my GPU mental model started to break down. The MXU (Matrix Multiply Unit) isn't a bolt-on accelerator, it's the primary compute engine. Each MXU is a 128x128 systolic array: 16,384 multiply-accumulate cells. The v5e has 4 MXUs per chip, all fed from the same VMEM. Everything that can be expressed as a matrix multiply goes through the MXUs.
 
 "Systolic" means data flows through the array rhythmically, like a heartbeat. One matrix is pre-loaded into the cells and stays stationary. The other streams in from the left, flowing through each cell. Every cell multiplies its resident weight by the passing activation, accumulates the partial sum, and hands data to its neighbor. By the time data exits the bottom, you have a full matrix multiply, and no intermediate values touched memory.
 
@@ -499,7 +499,7 @@ There's only one VPU shared across the whole chip, and it's roughly 10x slower t
 
 ### No threads
 
-On a GPU, memory latency is hidden by thread parallelism: when one warp stalls on a memory read, the SM switches to another (Part 4 covered this). A TPU has no threads. The scalar unit dispatches instructions to the MXUs and VPU. Latency hiding comes from pipelining: while the MXUs compute one tile, the DMA engine prefetches the next tile from HBM into VMEM. Same goal, completely different mechanism.
+On a GPU, memory latency is hidden by thread parallelism: when one warp stalls on a memory read, the SM switches to another (Part 4 covered this). A TPU has no threads, which took me a while to internalize. The scalar unit dispatches instructions to the MXUs and VPU. Latency hiding comes from pipelining: while the MXUs compute one tile, the DMA engine prefetches the next tile from HBM into VMEM. Same goal, completely different mechanism.
 
 For reference, the GPU (A100) has 108 SMs each with 4 tensor cores (432 total), thousands of CUDA cores, and ~164 KB shared memory per SM. Execution is massively threaded with warp switching for latency hiding. The TPU (v5e) has 1 TensorCore with 4 MXUs (128x128 systolic arrays), 1 VPU, and ~128 MB of shared VMEM. Execution is single-threaded and pipelined, with DMA/compute overlap for latency hiding.
 
@@ -512,7 +512,7 @@ VMEM        ~128 MB / chip   (on-chip SRAM — shared by all 4 MXUs + VPU)
 HBM         16 GB            ~820 GB/s   (off-chip — same role as GPU HBM)
 ```
 
-An A100 SM has ~164 KB of shared memory. A TPU v5e has ~128 MB of VMEM. That looks like 800x more on-chip space, but the comparison is slightly misleading: VMEM is chip-wide (shared by all MXUs), while shared memory is per-SM. A fairer comparison might be GPU L2 cache (~40 MB on A100), which is also chip-wide. Still, the TPU has 3x more chip-level on-chip memory, and VMEM is explicitly managed by the compiler rather than being a transparent cache. Bigger tiles fit on-chip, more data reuse per HBM load. Same tiling tradeoff from Part 4 (bigger tiles = more reuse but must fit in SRAM), just with a higher ceiling on TPU.
+An A100 SM has ~164 KB of shared memory. A TPU v5e has ~128 MB of VMEM, roughly 800x more on-chip space (this comparison is [misleading](#update-2026-03-13)). Bigger tiles fit on-chip, more data reuse per HBM load. Same tiling tradeoff from Part 4 (bigger tiles = more reuse but must fit in SRAM), just with a much higher ceiling on TPU.
 
 ---
 
@@ -577,7 +577,7 @@ Each new row of A (m=0, m=1) only costs 1 extra cycle. The pipeline is always fu
 
 ### Output-stationary (not the TPU, but it shows up in diagrams)
 
-Searching for systolic array diagrams will often turn up a different design where both A and B stream in, A from the left and B from the top. This is the output-stationary design:
+Searching for systolic array diagrams will often turn up a different design where both A and B stream in, A from the left and B from the top. This tripped me up at first because I assumed every diagram was describing the same thing. It's actually the output-stationary design:
 
 - The array is M rows x N columns (matching C's dimensions)
 - Cell `(i, j)` accumulates `C[i][j]`, the result builds up in place
@@ -875,3 +875,9 @@ On the GPU side (Part 4): Triton compiles through LLVM to PTX, I fuse manually (
 On the TPU side (this post): JAX compiles through HLO to XLA to device code, XLA fuses automatically, tiling is implicit (compiler decides) or explicit via `BlockSpec` in Pallas, the compiler decides what lives in VMEM, there's ~128 MB of VMEM per chip, and flash attention only matters once the score matrix exceeds ~n=8K (single head, d=64).
 
 The lesson I keep coming back to: the same optimization has completely different value on different hardware. I spent Parts 3-4 building up flash attention as this essential technique, and it is, on GPU. On TPU, at least for this single-head d=64 setup on a Colab v5e, the hardware architecture makes it unnecessary for typical sequence lengths, and the compiler handles it when it does become necessary. Understanding *why* I lost taught me more about both architectures than winning on GPU did.
+
+---
+
+## Update (2026-03-13) {#update-2026-03-13}
+
+The original version compared TPU VMEM to GPU shared memory ("800x more on-chip space"). [A commenter on HN](https://news.ycombinator.com/item?id=47294271) pointed out L2 cache is the better comparison, and after looking at the numbers I agree. VMEM is on-chip SRAM (~128 MB), software-managed like shared memory, but L2-sized (~40 MB on A100). It doesn't map cleanly to either GPU analogy. Reverted the inline comparison to the original wording with this footnote.

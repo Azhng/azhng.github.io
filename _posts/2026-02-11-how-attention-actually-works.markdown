@@ -24,7 +24,7 @@ I'll use math and code you can run. You can paste all of this into a Python REPL
 
 ## What is an LLM?
 
-It is the same block repeated dozens of times. Each block refines the token representations a little more:
+Once I understood the overall architecture, the simplicity surprised me. It is the same block repeated dozens of times. Each block refines the token representations a little more:
 
 ```
 "I love cats" -> [tokenize + embed]
@@ -62,7 +62,7 @@ It is the same block repeated dozens of times. Each block refines the token repr
 
 The unembedding matrix is often just the transpose of the embedding matrix. Same weights, opposite direction. One matmul, not an MLP.
 
-We are going to focus on the **Attention** part. The rest (FFN, normalization, residual connections) matters but is simpler.
+I'm going to focus on the attention part. The rest (FFN, normalization, residual connections) matters but is simpler.
 
 ---
 
@@ -94,7 +94,7 @@ V = X @ W_V   "what info do I carry?"         (3, 2)
 
 For this toy example, pretend `Q ≈ K ≈ V ≈ X` (no projection). I'm also skipping the $\sqrt{d_k}$ scale here for readability; it doesn't change the ranking for small `d_k`. Here is what happens step by step:
 
-**Step 1: `Q @ K.T` — how similar is each token to every other token?**
+Step 1: `Q @ K.T`, how similar is each token to every other token?
 ```
 Scores = Q @ K.T        (3,2) @ (2,3) → (3,3)
 
@@ -104,7 +104,7 @@ Scores = Q @ K.T        (3,2) @ (2,3) → (3,3)
         "cats"   [ 0.75   0.42    0.90 ]
 ```
 
-**Step 2: `softmax` — turn each row into a probability distribution**
+Step 2: `softmax`, turn each row into a probability distribution
 ```
 Weights = softmax(Scores)     each row sums to 1.0
 
@@ -114,7 +114,7 @@ Weights = softmax(Scores)     each row sums to 1.0
         "cats"   [ 0.35   0.25    0.40 ]
 ```
 
-**Step 3: `Weights @ V` — mix values according to those weights**
+Step 3: `Weights @ V`, mix values according to those weights
 ```
 Output = Weights @ V     (3,3) @ (3,2) → (3,2)
 
@@ -125,13 +125,9 @@ Output = Weights @ V     (3,3) @ (3,2) → (3,2)
 
 Before attention, `"cats"` only knew it was `"cats"`. After attention, it has blended in information from `"I"` and `"love"`. It now knows something about being cats-that-are-loved-by-I. Do this 80 times and the representations get very detailed.
 
-### Q, K, V — what are they?
+### Q, K, V: what are they?
 
-| Matrix | What it means | Analogy |
-|--------|-----------|--------|
-| **Query (Q)** | "What am I looking for?" | A search query |
-| **Key (K)** | "What do I contain?" | Index / metadata |
-| **Value (V)** | "What do I give if picked?" | The actual content |
+The analogy that finally made Q, K, V click for me: Q (Query) is "what am I looking for?" -- like a search query. K (Key) is "what do I contain?" -- like an index entry. V (Value) is "what do I give if picked?" -- the actual content returned.
 
 Concrete example. In "The cat sat on the mat because **it** was tired":
 - `Q` for `"it"` encodes something like "I need to find what I refer to"
@@ -206,7 +202,7 @@ Shape: (4, 3) — same as input
 
 ## Why scale by $\sqrt{d_k}$? {#why-scale-by-sqrt-d_k}
 
-Most explanations skip this part. Let's do it.
+Most explanations skip this part. It took me a while to build intuition for why it matters, so let's do it.
 
 When `d_k` is large, dot products get large too. Large scores make softmax saturate: one token gets almost all the mass, gradients vanish.
 
@@ -250,7 +246,7 @@ The terms are independent, so $\text{Var}[\mathbf{q} \cdot \mathbf{k}] = d_k$. S
 </div>
 </details>
 
-That keeps softmax in a useful range:
+Once I saw the variance proof, the scaling felt obvious in hindsight. It just keeps softmax in a useful range:
 
 ```python
 print(softmax(np.array([1., 2., 3.])))
@@ -267,7 +263,7 @@ print(softmax(np.array([20., -20., 0.])))
 
 When generating text, token `t` can only look at tokens `0` through `t-1`. If it could see the future it would be cheating.
 
-We add `-∞` to the upper triangle of the score matrix before softmax. `exp(-∞) = 0`, so those positions get zero weight:
+I think the implementation is the most satisfying part here. We add `-∞` to the upper triangle of the score matrix before softmax. `exp(-∞) = 0`, so those positions get zero weight:
 
 ```python
 def causal_attention(Q, K, V):
@@ -295,7 +291,7 @@ Token 0 can only see itself. Token 1 sees tokens 0-1. Token 3 sees everything be
 
 ## Multi-head attention
 
-Each head tends to specialize in a kind of pattern. But language has many things going on at once.
+When I first read about attention, I wondered why one attention pass wasn't enough. Each head tends to specialize in a kind of pattern, but language has many things going on at once.
 
 Take "The cat sat on the mat because **it** was comfortable." To figure out what "it" means, you need to track:
 - Syntax: "it" is the subject of "was"
@@ -311,7 +307,7 @@ Head 2: maybe learns "look at things with similar meaning"
 ...
 ```
 
-We split d_model into h heads, each of size d_k = d_model / h. Run attention on each head, concatenate, project back:
+The mechanics are clean once it clicks: split d_model into h heads, each of size d_k = d_model / h. Run attention on each head, concatenate, project back:
 
 ```python
 def multihead_attention(X, W_Q, W_K, W_V, W_O, num_heads, causal=True):
@@ -364,9 +360,7 @@ Attention weights: (8, 16, 16)
 
 ## Embeddings are not fixed labels
 
-This is the thing that ties it all together.
-
-The embedding layer is a lookup table. `"cat"` maps to some vector `[0.3, 0.9, ...]`. A positional encoding is added so the model knows _where_ each token is in the sequence (we are skipping the details here — just know it exists). After that, every `"cat"` at the same position starts with the same vector.
+This is the part that shifted my mental model the most. The embedding layer is a lookup table. `"cat"` maps to some vector `[0.3, 0.9, ...]`. A positional encoding is added so the model knows _where_ each token is in the sequence (I'm skipping the details here; just know it exists). After that, every `"cat"` at the same position starts with the same vector.
 
 But after attention mixes in the surrounding tokens, it is not just `"cat"` anymore:
 
@@ -386,12 +380,8 @@ At this point it isn't really a word anymore. It is a dense encoding of meaning-
 
 ---
 
-## Recap
+## What I took away from all of this
 
-1. **Attention** = Q @ K.T → softmax → @ V. Each token gets a weighted mix of other tokens' values.
-2. **$\sqrt{d_k}$ scaling** keeps dot products from blowing up softmax.
-3. **Causal mask** blocks the future. That is what makes generation possible.
-4. **Multi-head** runs several attention patterns in parallel.
-5. **Embeddings change** layer by layer. By the end they encode full context, not just the word.
+The thing that ties everything together for me: attention is just a soft lookup, repeated until the model has thought enough. Q/K/V gives the mechanism. Scaling and masking keep it numerically stable and causal. Multiple heads let it look at several things at once. And because this runs dozens of times in sequence, a token's representation drifts so far from its original embedding that by the final layer it barely resembles the word it started as. I think that last point is underappreciated -- it means the model is not really operating on words at all, but on evolved context vectors.
 
 Next: how LLMs generate text one token at a time, and why long contexts are expensive.
